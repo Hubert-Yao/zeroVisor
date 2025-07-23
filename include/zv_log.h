@@ -33,6 +33,7 @@ struct zv_log_ring_buffer {
 };
 
 void zv_log_write(enum log_level level, const char *tag, const char *fmt, ...);
+void zv_log_error(int error_code);
 void zv_log_init(void);
 void zv_log_exit(void);
 

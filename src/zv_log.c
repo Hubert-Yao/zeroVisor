@@ -11,6 +11,8 @@
 #include "../include/zv_log.h"
 
 EXPORT_SYMBOL(zv_log_write);
+EXPORT_SYMBOL(zv_log_error);
+
 EXPORT_SYMBOL(zv_log_init);
 EXPORT_SYMBOL(zv_log_exit);
 
@@ -54,6 +56,10 @@ void zv_log_write(
     spin_unlock_irqrestore(&zv_log_buf.lock, flags);
 } 
 
+void zv_log_error(int error_code) {
+    zv_log_write(LOG_NONE, "Error", "Error Code: ", error_code);
+}
+
 static int zv_log_proc_show(struct seq_file *msg, void *v) {
     size_t i;
     unsigned long flags;
@@ -96,7 +102,7 @@ void zv_log_init(void) {
     spin_lock_init(&zv_log_buf.lock);
     zv_log_buf.head = 0;
     zv_log_buf.tail = 0;
-    zv_log_buf.max_level = LOG_NORMAL;
+    zv_log_buf.max_level = LOG_DEBUG;
 
     proc_create("zv_log", 0444, NULL, &zv_log_proc_fops);
 

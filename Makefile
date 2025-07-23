@@ -10,7 +10,10 @@ KDIR := /lib/modules/$(KVERSION)/build
 
 PWD := $(shell pwd)
 
-all: modules move_ko clean_tmp
+all: symtable modules move_ko clean_tmp
+
+symtable:
+	sudo python3 $(SRC_DIR)/make_symtable.py
 
 modules:
 	@mkdir -p $(BUILD_DIR)
