@@ -1,1 +1,2 @@
-obj-m := zv_core.o
+obj-m := zeroVisor.o
+zeroVisor-objs := zv_core.o zv_log.o
