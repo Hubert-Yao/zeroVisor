@@ -6,6 +6,7 @@
 #include <linux/spinlock.h>
 
 #include "../include/zv_mem_manager.h"
+#include "../include/zv_log.h"
 
 static LIST_HEAD(zv_alloc_list);
 static DEFINE_SPINLOCK(zv_alloc_list_lock); // for multi-thread safe
@@ -46,6 +47,54 @@ void* zv_alloc_page(gfp_t flags)
     return ptr;
 }
 
+/* These function used to free a specified memory block */
+static bool zv_remove_node(void *ptr) {
+    struct zv_alloc_node *node, *tmp;
+
+    spin_lock(&zv_alloc_list_lock);
+    list_for_each_entry_safe(node, tmp, &zv_alloc_list, list) {
+        if (node->ptr == ptr) {
+            list_del(&node->list);
+            kfree(node);
+            spin_unlock(&zv_alloc_list_lock);
+            return true;
+        }
+    }
+    spin_unlock(&zv_alloc_list_lock);
+    return false;
+}
+
+void zv_kfree(void* ptr) {
+    if (! ptr) return;
+
+    if (zv_remove_node(ptr)) {
+        kfree(ptr);
+    } else {
+        zv_log_write(LOG_NONE, "zv_mem", "Warning: kfree called on untracked ptr %p", ptr);
+    }
+}
+
+void zv_vfree(void* ptr) {
+    if (! ptr) return;
+
+    if (zv_remove_node(ptr)) {
+        vfree(ptr);
+    } else {
+        zv_log_write(LOG_NONE, "zv_mem", "Warning: vfree called on untracked ptr %p", ptr);
+    }
+}
+
+void zv_free_page_ptr(void* ptr) {
+    if (! ptr) return;
+
+    if(zv_remove_node(ptr)) {
+        free_page((unsigned long) ptr);
+    } else {
+        zv_log_write(LOG_NONE, "zv_mem", "Warning: free_page called on untracked ptr %p", ptr);
+    }
+}
+
+/* This function is used in rmmod(or similar cases) to free all the allocated memory */
 void zv_free_all(void) {
     struct zv_alloc_node *node, *tmp;
 

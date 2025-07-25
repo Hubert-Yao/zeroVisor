@@ -16,6 +16,8 @@
 /* Variables*/
 int g_kernel_version_index = -1;
 u64 g_max_ram_size = 0;
+// VMCS Memory 
+
 
 // kallsyms_lookup_name address exported by self
 typedef unsigned long (*kallsyms_lookup_name_t)(const char *);
@@ -232,6 +234,26 @@ static int zv_correct_symbol(void) {
 
     return 0;
 }
+
+/*
+ * Allocate memory for VMCS.
+ */
+// static void zv_alloc_vmcs_memory(void) {
+//     int cpu_count;
+//     int i;
+
+//     cpu_count = num_online_cpus();
+
+//     zv_log_write(LOG_DEBUG, "Core", "Alloc VMCS Memory");
+
+//     for (i = 0; i < cpu_count; i ++) {
+        
+//     }
+
+// }
+
+
+
 
 module_init(zeroVisor_init);
 module_exit(zeroVisor_exit);

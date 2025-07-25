@@ -30,3 +30,5 @@
 
 /* CPUID flags */
 #define CPUID_1_ECX_VMX							((u64)0x01 << 5)
+
+#define MAX_PROCESSOR_COUNT 				256
