@@ -70,8 +70,9 @@ static int zv_log_proc_show(struct seq_file *msg, void *v) {
     while(i != zv_log_buf.head) {
         struct zv_log_entry *entry = &zv_log_buf.buffer[i];
 
-        seq_printf(msg, "[%llu ns] PID: %d [%s] %s: %s \n",
-                ktime_to_ns(entry->timestamp),
+        seq_printf(msg, "[%llu ms] PID: %d [%-6s] [%-6s]: %s \n",
+                // ktime_to_ns(entry->timestamp),
+                ktime_to_ms(entry->timestamp),
                 entry->pid,
                 log_level_str[entry->level],
                 entry->tag,
@@ -102,7 +103,7 @@ void zv_log_init(void) {
     spin_lock_init(&zv_log_buf.lock);
     zv_log_buf.head = 0;
     zv_log_buf.tail = 0;
-    zv_log_buf.max_level = LOG_DEBUG;
+    zv_log_buf.max_level = LOG_DETAIL;
 
     proc_create("zv_log", 0444, NULL, &zv_log_proc_fops);
 

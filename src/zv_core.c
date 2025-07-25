@@ -5,27 +5,48 @@
 #include <linux/fs.h>
 #include <linux/slab.h>
 #include <linux/string.h>
+#include <linux/mm.h>
 
 #include "../include/zv_log.h"
 #include "../include/zv_config.h"
 #include "../include/zv_types.h"
 #include "../include/symbol.h"
+#include "../include/zv_mmu.h"
 
 /* Variables*/
 int g_kernel_version_index = -1;
+u64 g_max_ram_size = 0;
 
 // kallsyms_lookup_name address exported by self
 typedef unsigned long (*kallsyms_lookup_name_t)(const char *);
 static kallsyms_lookup_name_t kallsyms_lookup_name = (kallsyms_lookup_name_t)KALLSYMS_LOOKUP_NAME_ADDR;
 
 
-// static functions declarations
+/* Static functions declarations */ 
 static void zv_print_logo(void);
 static int zv_get_kernel_version_index(void);
 static int zv_check_kaslr(void);
+static int zv_correct_symbol(void);
+
+/* support for ZEROVISOR_USE_SHUTDOWN*/
+#if ZEROVISOR_USE_SHUTDOWN
+/* Variables*/
+// static struct notifier_block* g_reboot_nb_ptr = NULL;
+// static struct notifier_block g_reboot_nb = {
+//     .notifier_call = 
+// }
+
+/* Functions*/
+
+
+#endif
 
 static int __init zeroVisor_init(void) {
     // variables init
+    u32 eax, ebx, ecx, edx;
+    int cpu_id;
+    int cpu_count;
+
 
     // sub-modules init
     zv_log_init();
@@ -40,11 +61,51 @@ static int __init zeroVisor_init(void) {
         zv_log_error(ERROR_KERNEL_VERSION_MISMATCH);
     }
 
-    /* Check kASLR */
-    if (zv_check_kaslr() == -1) {
+    /* Check kASLR and correct symbol address*/
+    if (zv_check_kaslr() == 1) {
         zv_log_write(LOG_DEBUG, "Core", "Kernel ASLR is enabled.");
+        zv_correct_symbol();
     }
-    
+
+    /* Check VMX support*/
+    cpuid_count(1, 0, &eax, &ebx, &ecx, &edx);
+    zv_log_write(LOG_DETAIL, "Core", "Initialize VMX");
+    zv_log_write(LOG_DETAIL, "Core", "  [*] Check virtualization, %08X, %08X, %08X, %08X", 
+        eax, ebx, ecx, edx);
+    if (ecx & CPUID_1_ECX_VMX) {
+        zv_log_write(LOG_DETAIL, "Core", "  [*] VMX support");
+    } else {
+        zv_log_write(LOG_NONE, "Core", " [!] VMX not support");
+        zv_log_error(ERROR_HW_NOT_SUPPORT);
+    }
+
+#if ZEROVISOR_USE_SHUTDOWN
+    /* Add callback funtion for checking system shutdown*/
+    // TODO
+#endif
+
+    /* 
+     * Check total RAM size.
+     * To Cover system reserved area (3GB ~ 4GB)
+     * if system has under 4GB RAM, zeroVisor sets 4GB to the variable.
+     * if system has upper 4GB RAM, zeroVisor sets 1GB more than Original size to the variable.
+     */
+    g_max_ram_size = zv_get_max_ram_size();
+    zv_log_write(LOG_DEBUG, "Core", "totalram_pages %ld, size %ld, "
+		"g_max_ram_size %ld", totalram_pages(), totalram_pages() * VAL_4KB,
+		g_max_ram_size); 
+    if (g_max_ram_size < VAL_4GB) {
+        g_max_ram_size = VAL_4GB;
+    } else {
+        g_max_ram_size = g_max_ram_size + VAL_1GB;
+    }
+
+    cpu_id = smp_processor_id();
+    cpu_count = num_online_cpus();
+
+    zv_log_write(LOG_NORMAL, "Core", "CPU Count: %d", cpu_count);
+    zv_log_write(LOG_NORMAL, "Core", "Booting CPU ID: %d", cpu_id);
+
     return 0;
 }
 
@@ -121,12 +182,13 @@ u64 zv_get_symbol_address(char* symbol) {
 }
 
 /*
- * Check kernel ASLR
+ * Check kernel ASLR.
  */
 static int zv_check_kaslr(void) {
-    int i;
-    u64 static_text_addr;    
+    u64 static_text_addr;
     u64 dynamic_text_addr = kallsyms_lookup_name("_etext");
+    int i;
+
 
     for (i = 0; i < SYMBOL_MAX_COUNT; i ++) {
         if (strcmp(g_symbol_table_array[g_kernel_version_index].symbol[i].name, "_etext") == 0) {
@@ -136,9 +198,37 @@ static int zv_check_kaslr(void) {
     }
 
     if (static_text_addr != dynamic_text_addr) {
-        zv_log_write(LOG_NORMAL, "Core", "_etext System.map=%lX Kallsyms=%lX", 
+        zv_log_write(LOG_DEBUG, "Core", "_etext System.map=%lX Kallsyms=%lX", 
             static_text_addr, dynamic_text_addr);
-        return -1;
+        return 1;
+    }
+
+    return 0;
+}
+
+/*
+ *  Correct static symbol address offset by kASLR.
+ */
+static int zv_correct_symbol(void) {
+    u64 static_text_addr;
+    u64 dynamic_text_addr = kallsyms_lookup_name("_etext");
+    u64 delta;
+    int i;
+    
+
+    for (i = 0; i < SYMBOL_MAX_COUNT; i ++) {
+        if (strcmp(g_symbol_table_array[g_kernel_version_index].symbol[i].name, "_etext") == 0) {
+            static_text_addr = g_symbol_table_array[g_kernel_version_index].symbol[i].addr;
+            break;
+        }
+    }
+
+    delta = dynamic_text_addr - static_text_addr;
+
+    zv_log_write(LOG_DEBUG, "Core", "Correct the symbol offset caused by kASLR: %#lX", delta);
+
+    for(i = 0; i < SYMBOL_MAX_COUNT; i ++) {
+        g_symbol_table_array[g_kernel_version_index].symbol[i].addr += delta;
     }
 
     return 0;
