@@ -1,0 +1,86 @@
+#include <linux/module.h>
+#include <linux/slab.h>
+#include <linux/vmalloc.h>
+#include <linux/mm.h>
+#include <linux/list.h>
+#include <linux/spinlock.h>
+
+#include "../include/zv_mem_manager.h"
+
+static LIST_HEAD(zv_alloc_list);
+static DEFINE_SPINLOCK(zv_alloc_list_lock); // for multi-thread safe
+
+static void zv_track_alloc(void* ptr, enum zv_mem_type type) {
+    struct zv_alloc_node* node;
+
+    if(!ptr) return ;
+
+    node = kmalloc(sizeof(*node), GFP_KERNEL);
+    if(!node) return;
+
+    node -> ptr = ptr;
+    node -> type = type;
+
+    spin_lock(&zv_alloc_list_lock);
+    list_add(&node->list, &zv_alloc_list);
+    spin_unlock(&zv_alloc_list_lock);
+}
+
+void* zv_kmalloc(size_t size, gfp_t flags) {
+    void* ptr = kmalloc(size, flags);
+    zv_track_alloc(ptr, ZV_KMALLOC);
+    return ptr;
+}
+
+void* zv_vmalloc(size_t size)
+{
+    void* ptr = vmalloc(size);
+    zv_track_alloc(ptr, ZV_VMALLOC);
+    return ptr;
+}
+
+void* zv_alloc_page(gfp_t flags)
+{
+    void* ptr = (void*)__get_free_page(flags);
+    zv_track_alloc(ptr, ZV_ALLOC_PAGE);
+    return ptr;
+}
+
+void zv_free_all(void) {
+    struct zv_alloc_node *node, *tmp;
+
+    spin_lock(&zv_alloc_list_lock);
+    list_for_each_entry_safe(node, tmp, &zv_alloc_list, list) {
+        list_del(&node->list);
+        spin_unlock(&zv_alloc_list_lock);  // avoid holding lock too long
+
+        switch (node->type) {
+            case ZV_KMALLOC:
+                kfree(node->ptr);
+                break;
+            case ZV_VMALLOC:
+                vfree(node->ptr);
+                break;
+            case ZV_ALLOC_PAGE:
+                free_page((unsigned long)node->ptr);
+                break;
+        }
+        kfree(node);
+
+        spin_lock(&zv_alloc_list_lock);  // re-lock
+    }
+    spin_unlock(&zv_alloc_list_lock);
+}
+
+void zv_dump_allocs(void)
+{
+    struct zv_alloc_node *node;
+
+    printk(KERN_INFO "[zv_mem] Current tracked allocations:\n");
+
+    spin_lock(&zv_alloc_list_lock);
+    list_for_each_entry(node, &zv_alloc_list, list) {
+        printk(KERN_INFO "  - type=%d ptr=%p\n", node->type, node->ptr);
+    }
+    spin_unlock(&zv_alloc_list_lock);
+}

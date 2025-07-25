@@ -111,7 +111,6 @@ static int __init zeroVisor_init(void) {
 
 static void __exit zeroVisor_exit(void) {
     zv_log_write(LOG_NORMAL, "Core", "GoodBye, zeroVisor!");
-    
     zv_log_exit();
 }
 
