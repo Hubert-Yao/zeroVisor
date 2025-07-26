@@ -12,11 +12,20 @@
 #include "../include/zv_types.h"
 #include "../include/symbol.h"
 #include "../include/zv_mmu.h"
+#include "../include/zv_mem_manager.h"
 
 /* Variables*/
 int g_kernel_version_index = -1;
 u64 g_max_ram_size = 0;
-// VMCS Memory 
+// VMCS Memory variables
+void* g_vmxon_region_log_addr[MAX_PROCESSOR_COUNT] = {NULL, };
+void* g_guest_vmcs_log_addr[MAX_PROCESSOR_COUNT] = {NULL, };
+void* g_vm_exit_stack_addr[MAX_PROCESSOR_COUNT] = {NULL, };
+void* g_io_bitmap_addrA[MAX_PROCESSOR_COUNT] = {NULL, };
+void* g_io_bitmap_addrB[MAX_PROCESSOR_COUNT] = {NULL, };
+void* g_msr_bitmap_addr[MAX_PROCESSOR_COUNT] = {NULL, };
+void* g_virt_apic_page_addr[MAX_PROCESSOR_COUNT] = {NULL, };
+u64 g_stack_size = MAX_STACK_SIZE;
 
 
 // kallsyms_lookup_name address exported by self
@@ -29,6 +38,7 @@ static void zv_print_logo(void);
 static int zv_get_kernel_version_index(void);
 static int zv_check_kaslr(void);
 static int zv_correct_symbol(void);
+static void zv_alloc_vmcs_memory(void);
 
 /* support for ZEROVISOR_USE_SHUTDOWN*/
 #if ZEROVISOR_USE_SHUTDOWN
@@ -77,7 +87,7 @@ static int __init zeroVisor_init(void) {
     if (ecx & CPUID_1_ECX_VMX) {
         zv_log_write(LOG_DETAIL, "Core", "  [*] VMX support");
     } else {
-        zv_log_write(LOG_NONE, "Core", " [!] VMX not support");
+        zv_log_write(LOG_NONE, "Core", "  [!] VMX not support");
         zv_log_error(ERROR_HW_NOT_SUPPORT);
     }
 
@@ -96,11 +106,7 @@ static int __init zeroVisor_init(void) {
     zv_log_write(LOG_DEBUG, "Core", "totalram_pages %ld, size %ld, "
 		"g_max_ram_size %ld", totalram_pages(), totalram_pages() * VAL_4KB,
 		g_max_ram_size); 
-    if (g_max_ram_size < VAL_4GB) {
-        g_max_ram_size = VAL_4GB;
-    } else {
-        g_max_ram_size = g_max_ram_size + VAL_1GB;
-    }
+    g_max_ram_size = g_max_ram_size < VAL_4GB ? VAL_4GB : g_max_ram_size + VAL_1GB;
 
     cpu_id = smp_processor_id();
     cpu_count = num_online_cpus();
@@ -108,10 +114,30 @@ static int __init zeroVisor_init(void) {
     zv_log_write(LOG_NORMAL, "Core", "CPU Count: %d", cpu_count);
     zv_log_write(LOG_NORMAL, "Core", "Booting CPU ID: %d", cpu_id);
 
+    /* Allcate the required memory */
+    zv_alloc_vmcs_memory();
+
+    if (zv_alloc_ept_pages() != 0) {
+        zv_log_error(ERROR_MEMORY_ALLOC_FAIL);
+        goto ERROR_HANDLE;
+    }
+    zv_setup_ept_pagetables();
+
+    /* Protect the memory */
+
+
+    return 0;
+
+ERROR_HANDLE:
+    /* Free all the allocated memory block */
+    zv_free_all();
     return 0;
 }
 
 static void __exit zeroVisor_exit(void) {
+    /* Free all the allocated memory block */
+    zv_free_all();
+
     zv_log_write(LOG_NORMAL, "Core", "GoodBye, zeroVisor!");
     zv_log_exit();
 }
@@ -238,19 +264,54 @@ static int zv_correct_symbol(void) {
 /*
  * Allocate memory for VMCS.
  */
-// static void zv_alloc_vmcs_memory(void) {
-//     int cpu_count;
-//     int i;
+static void zv_alloc_vmcs_memory(void) {
+    int cpu_count;
+    int i;
 
-//     cpu_count = num_online_cpus();
+    cpu_count = num_online_cpus();
 
-//     zv_log_write(LOG_DEBUG, "Core", "Alloc VMCS Memory");
+    zv_log_write(LOG_DEBUG, "Core", "Alloc VMCS Memory");
 
-//     for (i = 0; i < cpu_count; i ++) {
-        
-//     }
+    for (i = 0; i < cpu_count; i ++) {
+        g_vmxon_region_log_addr[i] = zv_kmalloc(VMCS_SIZE, GFP_KERNEL);
+        g_guest_vmcs_log_addr[i] = zv_kmalloc(VMCS_SIZE, GFP_KERNEL);
 
-// }
+        g_vm_exit_stack_addr[i] = (void*)zv_vmalloc(g_stack_size);
+
+        g_io_bitmap_addrA[i] = zv_kmalloc(IO_BITMAP_SIZE, GFP_KERNEL);
+        g_io_bitmap_addrB[i] = zv_kmalloc(IO_BITMAP_SIZE, GFP_KERNEL);
+
+        g_msr_bitmap_addr[i] = zv_kmalloc(IO_BITMAP_SIZE, GFP_KERNEL);
+		g_virt_apic_page_addr[i] = zv_kmalloc(VIRT_APIC_PAGE_SIZE, GFP_KERNEL);
+
+        if (   (! g_vmxon_region_log_addr[i])
+            || (! g_guest_vmcs_log_addr[i])
+            || (! g_vm_exit_stack_addr[i])
+            || (! g_io_bitmap_addrA[i])
+            || (! g_io_bitmap_addrB[i])
+            || (! g_msr_bitmap_addr[i])
+            || (! g_virt_apic_page_addr[i]) 
+        ) {
+            zv_log_write(LOG_DEBUG, "Core", "zv_alloc_vmcs_memory allocate fail");
+            return ;
+        } else {
+            zv_log_write(LOG_DEBUG, "Core", "[*] VM[%d] Alloc Host VMCS %016lX",
+                i, g_vmxon_region_log_addr[i]);
+            zv_log_write(LOG_DEBUG, "Core", "[*] VM[%d] Alloc Guest VMCS %016lX",
+                i, g_guest_vmcs_log_addr[i]);
+            zv_log_write(LOG_DEBUG, "Core", "[*] VM[%d] Stack Addr %016lX",
+                i, g_vm_exit_stack_addr[i]);
+            zv_log_write(LOG_DEBUG, "Core", "[*] VM[%d] IO BitmapA Addr %016lX",
+                i, g_io_bitmap_addrA[i]);
+            zv_log_write(LOG_DEBUG, "Core", "[*] VM[%d] IO BitmapB Addr %016lX",
+                i, g_io_bitmap_addrB[i]);
+            zv_log_write(LOG_DEBUG, "Core", "[*] VM[%d] MSR Bitmap Addr %016lX",
+                i, g_msr_bitmap_addr[i]); 
+            zv_log_write(LOG_DEBUG, "Core", "[*] VM[%d] Virt APIC Page Addr %016lX",
+                i, g_virt_apic_page_addr[i]);  
+        }
+    }
+}
 
 
 

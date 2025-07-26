@@ -70,7 +70,7 @@ void zv_kfree(void* ptr) {
     if (zv_remove_node(ptr)) {
         kfree(ptr);
     } else {
-        zv_log_write(LOG_NONE, "zv_mem", "Warning: kfree called on untracked ptr %p", ptr);
+        zv_log_write(LOG_NONE, "Mem", "Warning: kfree called on untracked ptr %p", ptr);
     }
 }
 
@@ -80,17 +80,17 @@ void zv_vfree(void* ptr) {
     if (zv_remove_node(ptr)) {
         vfree(ptr);
     } else {
-        zv_log_write(LOG_NONE, "zv_mem", "Warning: vfree called on untracked ptr %p", ptr);
+        zv_log_write(LOG_NONE, "Mem", "Warning: vfree called on untracked ptr %p", ptr);
     }
 }
 
-void zv_free_page_ptr(void* ptr) {
+void zv_free_page(void* ptr) {
     if (! ptr) return;
 
     if(zv_remove_node(ptr)) {
         free_page((unsigned long) ptr);
     } else {
-        zv_log_write(LOG_NONE, "zv_mem", "Warning: free_page called on untracked ptr %p", ptr);
+        zv_log_write(LOG_NONE, "Mem", "Warning: free_page called on untracked ptr %p", ptr);
     }
 }
 
@@ -125,11 +125,11 @@ void zv_dump_allocs(void)
 {
     struct zv_alloc_node *node;
 
-    printk(KERN_INFO "[zv_mem] Current tracked allocations:\n");
+    zv_log_write(LOG_DEBUG, "Mem", "Current tracked allocations: ");
 
     spin_lock(&zv_alloc_list_lock);
     list_for_each_entry(node, &zv_alloc_list, list) {
-        printk(KERN_INFO "  - type=%d ptr=%p\n", node->type, node->ptr);
+        zv_log_write(LOG_DEBUG, "Mem", "  - type = %d ptr = %p", node->type, node->ptr);
     }
     spin_unlock(&zv_alloc_list_lock);
 }

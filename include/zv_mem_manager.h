@@ -21,6 +21,10 @@ void* zv_vmalloc(size_t size);
 void* zv_alloc_page(gfp_t flags);
 
 /* Free */
+void zv_kfree(void* ptr);
+void zv_vfree(void* ptr);
+void zv_free_page(void* ptr);
+
 void zv_free_all(void);
 
 /* Debug */

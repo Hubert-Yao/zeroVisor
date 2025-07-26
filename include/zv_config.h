@@ -13,6 +13,9 @@
  */
 #define ZEROVISOR_USE_SHUTDOWN                  1
 
+/* Utility macros. */
+#define CEIL(X, Y)						        (((X) + (Y) - 1) / (Y))
+#define MASK_GDT_ACCESS					        ((u64)0x03)
 
 /* Static symbol table */
 #define SYMBOL_MAX_COUNT                        32
@@ -31,4 +34,9 @@
 /* CPUID flags */
 #define CPUID_1_ECX_VMX							((u64)0x01 << 5)
 
-#define MAX_PROCESSOR_COUNT 				256
+#define MAX_PROCESSOR_COUNT 				    256
+#define MAX_STACK_SIZE						    0x800000
+
+#define VMCS_SIZE							    0x2000
+#define IO_BITMAP_SIZE						    0x1000
+#define VIRT_APIC_PAGE_SIZE 				    0x1000
