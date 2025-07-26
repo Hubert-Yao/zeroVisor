@@ -75,3 +75,5 @@ typedef int (*my_walk_system_ram_range) (unsigned long start_pfn, unsigned long 
 u64 zv_get_max_ram_size(void);
 int zv_alloc_ept_pages(void);
 void zv_setup_ept_pagetables(void);
+void* zv_get_pagetable_log_addr(int type, int index);
+void* zv_get_pagetable_phy_addr(int type, int index);

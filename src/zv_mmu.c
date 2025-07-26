@@ -1,13 +1,19 @@
 #include <linux/mm.h>
+#include <asm/io.h>
 
 #include "../include/zv_mmu.h"
 #include "../include/zv_core.h"
 #include "../include/zv_log.h"
 #include "../include/zv_mem_manager.h"
+#include "../include/zv_config.h"
 
 /* Variables */
 static u64 g_ram_end;
 struct zv_ept_info g_ept_info = {0, };
+
+/* Static functions declarations */
+static void zv_setup_ept_system_ram_range(void);
+static int zv_callback_set_write_back_to_ram(unsigned long start, unsigned long size, void* arg);
 
 
 static int zv_callback_walk_ram(unsigned long start, unsigned long size, void* arg) {
@@ -175,15 +181,13 @@ void zv_setup_ept_pagetables(void) {
     /* Setup PDPTE PD */
     zv_log_write(LOG_DETAIL, "MMU", "Setup PDPTE PD");
     base_addr = 0;
-    for (j = 0; j < g_ept_info.pdpte_pd_ent_count; j ++) {
+    for (j = 0; j < g_ept_info.pdpte_pd_page_count; j ++) {
         ept_info = (struct zv_ept_pagetable*)zv_get_pagetable_log_addr(EPT_TYPE_PDPTEPD, j);
         zv_log_write(LOG_DETAIL, "MMU", "   [*] Setup PDPTEPD [%d] %016lX", j, (u64)ept_info);
         memset(ept_info, 0, sizeof(struct zv_ept_pagetable));
 
         loop_cnt = g_ept_info.pdpte_pd_ent_count - (j * EPT_PAGE_ENT_COUNT);
-        // loop_cnt = loop_cnt > EPT_PAGE_ENT_COUNT ? EPT_PAGE_ENT_COUNT : loop_cnt;
-        loop_cnt = min(loop_cnt, EPT_PAGE_ENT_COUNT);
-
+        loop_cnt = loop_cnt > EPT_PAGE_ENT_COUNT ? EPT_PAGE_ENT_COUNT : loop_cnt;
 
         for (i = 0; i < EPT_PAGE_ENT_COUNT; i ++) {
             if (i < loop_cnt) {
@@ -206,12 +210,13 @@ void zv_setup_ept_pagetables(void) {
     zv_log_write(LOG_DETAIL, "MMU", "Setup PDEPT");
     base_addr = 0;
     for (j = 0; j < g_ept_info.pdept_page_count; j ++) {
-        ept_info = (struct zv_ept_pagetable*)zv_get_pagetable_phy_addr(EPT_TYPE_PDEPT, j);
+        ept_info = (struct zv_ept_pagetable*)zv_get_pagetable_log_addr(EPT_TYPE_PDEPT, j);
         zv_log_write(LOG_DETAIL, "MMU", "   [*] Setup PDEPT [%d] %016lX", j, (u64)ept_info);
         memset(ept_info, 0, sizeof(struct zv_ept_pagetable));
 
         loop_cnt = g_ept_info.pdept_ent_count - (j * EPT_PAGE_ENT_COUNT);
-        loop_cnt = min(loop_cnt, EPT_PAGE_ENT_COUNT);
+        loop_cnt = loop_cnt > EPT_PAGE_ENT_COUNT ? EPT_PAGE_ENT_COUNT : loop_cnt;
+
 
         for (i = 0; i < EPT_PAGE_ENT_COUNT; i ++) {
             if (i < loop_cnt) {
@@ -233,11 +238,12 @@ void zv_setup_ept_pagetables(void) {
     /* Setup PTE */
     zv_log_write(LOG_DETAIL, "MMU", "Setup PTE");
     for (j = 0; j < g_ept_info.pte_page_count; j ++) {
-        ept_info = (struct zv_ept_pagetable*)zv_get_pagetable_phy_addr(EPT_TYPE_PTE, j);
+        ept_info = (struct zv_ept_pagetable*)zv_get_pagetable_log_addr(EPT_TYPE_PTE, j);
         memset(ept_info, 0, sizeof(struct zv_ept_pagetable));
 
         loop_cnt = g_ept_info.pte_ent_count - (j * EPT_PAGE_ENT_COUNT);
-        loop_cnt = min(loop_cnt, EPT_PAGE_ENT_COUNT);
+        loop_cnt = loop_cnt > EPT_PAGE_ENT_COUNT ? EPT_PAGE_ENT_COUNT : loop_cnt;
+
 
         for (i = 0; i < EPT_PAGE_ENT_COUNT; i ++) {
             if (i < loop_cnt) {
@@ -336,13 +342,13 @@ static int zv_callback_set_write_back_to_ram(
 }
 
 /* Protect page table memory for EPT */
-void zv_protect_ept_pages(void) {
-    int i;
-    u64 end;
+// void zv_protect_ept_pages(void) {
+//     int i;
+//     u64 end;
 
-    zv_log_write(LOG_DEBUG, "MMU", "Protect EPT");
+//     zv_log_write(LOG_DEBUG, "MMU", "Protect EPT");
 
-    /* Hide the EPT page table */
-    // TODO
-}
+//     /* Hide the EPT page table */
+//     // TODO
+// }
 

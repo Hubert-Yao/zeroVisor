@@ -1,5 +1,5 @@
 // Dynamically added from /proc/kallsyms
-#define KALLSYMS_LOOKUP_NAME_ADDR 0xffffffff81766840
+#define KALLSYMS_LOOKUP_NAME_ADDR 0xffffffffb6966840
 char* g_kernel_version[] = 
 {
 	"#1 SMP Wed Jul 23 01:35:44 CST 2025",
