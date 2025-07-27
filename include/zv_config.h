@@ -31,6 +31,10 @@
 #define ERROR_TASK_OVERFLOW						8
 #define ERROR_MODULE_OVERFLOW					9
 
+/* Define allocated memory type. */
+#define ALLOC_KMALLOC							0
+#define ALLOC_VMALLOC							1
+
 /* CPUID flags */
 #define CPUID_1_ECX_VMX							((u64)0x01 << 5)
 

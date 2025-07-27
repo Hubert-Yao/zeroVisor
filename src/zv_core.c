@@ -7,6 +7,8 @@
 #include <linux/string.h>
 #include <linux/mm.h>
 
+#include <asm/io.h>
+
 #include "../include/zv_log.h"
 #include "../include/zv_config.h"
 #include "../include/zv_types.h"
@@ -26,6 +28,9 @@ void* g_io_bitmap_addrB[MAX_PROCESSOR_COUNT] = {NULL, };
 void* g_msr_bitmap_addr[MAX_PROCESSOR_COUNT] = {NULL, };
 void* g_virt_apic_page_addr[MAX_PROCESSOR_COUNT] = {NULL, };
 u64 g_stack_size = MAX_STACK_SIZE;
+// Memory pool variables
+static spinlock_t g_mem_pool_lock;
+
 
 
 // kallsyms_lookup_name address exported by self
@@ -39,6 +44,7 @@ static int zv_get_kernel_version_index(void);
 static int zv_check_kaslr(void);
 static int zv_correct_symbol(void);
 static void zv_alloc_vmcs_memory(void);
+static void zv_protect_vmcs(void);
 
 /* support for ZEROVISOR_USE_SHUTDOWN*/
 #if ZEROVISOR_USE_SHUTDOWN
@@ -71,6 +77,7 @@ static int __init zeroVisor_init(void) {
     if (zv_get_kernel_version_index() == -1) {
         zv_log_write(LOG_NONE, "Core", "Kernel Version is not supported");
         zv_log_error(ERROR_KERNEL_VERSION_MISMATCH);
+        return 0;
     }
 
     /* Check kASLR and correct symbol address*/
@@ -89,6 +96,7 @@ static int __init zeroVisor_init(void) {
     } else {
         zv_log_write(LOG_NONE, "Core", "  [!] VMX not support");
         zv_log_error(ERROR_HW_NOT_SUPPORT);
+        return 0;
     }
 
 #if ZEROVISOR_USE_SHUTDOWN
@@ -124,6 +132,13 @@ static int __init zeroVisor_init(void) {
     zv_setup_ept_pagetables();
 
     /* Protect the memory */
+    zv_protect_ept_pages();
+    zv_protect_vmcs();
+
+    /* Setup Memory for zeroVisor
+     * After loaded and two world are separated. so zeroVisor should be
+     * use own memory pool to prevent interference of the guest.
+     */
 
 
     return 0;
@@ -313,8 +328,69 @@ static void zv_alloc_vmcs_memory(void) {
     }
 }
 
+/* Hiding memory range from the guest */
+void zv_hide_range(u64 start_addr, u64 end_addr, int alloc_type) {
+    u64 i;
+    u64 data;
+    u64 phy_addr;
+    u64 align_end_addr;
 
+    /* Round up the end address */
+    align_end_addr = (end_addr + PAGE_SIZE - 1) & MASK_PAGEADDR;
 
+    for (i = (start_addr & MASK_PAGEADDR); i < align_end_addr; i += PAGE_SIZE) {
+        data = *((u64*)i);
+
+        if (alloc_type == ALLOC_KMALLOC) {
+            phy_addr = virt_to_phys((void*)i);
+        } else { // ALLOC_VMALLOC
+            phy_addr = PFN_PHYS(vmalloc_to_pfn((void*)i));
+        }
+
+        zv_set_ept_hide_page(phy_addr);
+    }
+}
+
+/* Protect VMCS structure */
+static void zv_protect_vmcs(void) {
+    int i;
+    int cpu_count;
+
+    cpu_count = num_online_cpus();
+    zv_log_write(LOG_DEBUG, "MMU", "Protect VMCS");
+
+    for (i = 0 ; i < cpu_count; i ++)
+	{
+		zv_hide_range((u64)g_vmxon_region_log_addr[i],
+			(u64)g_vmxon_region_log_addr[i] + VMCS_SIZE, ALLOC_KMALLOC);
+		zv_hide_range((u64)g_guest_vmcs_log_addr[i],
+			(u64)g_guest_vmcs_log_addr[i] + VMCS_SIZE, ALLOC_KMALLOC);
+		zv_hide_range((u64)g_vm_exit_stack_addr[i],
+			(u64)g_vm_exit_stack_addr[i] + g_stack_size, ALLOC_VMALLOC);
+		zv_hide_range((u64)g_io_bitmap_addrA[i],
+			(u64)g_io_bitmap_addrA[i] + IO_BITMAP_SIZE, ALLOC_KMALLOC);
+		zv_hide_range((u64)g_io_bitmap_addrB[i],
+			(u64)g_io_bitmap_addrB[i] + IO_BITMAP_SIZE, ALLOC_KMALLOC);
+		zv_hide_range((u64)g_msr_bitmap_addr[i],
+			(u64)g_msr_bitmap_addr[i] + IO_BITMAP_SIZE, ALLOC_KMALLOC);
+		zv_hide_range((u64)g_virt_apic_page_addr[i],
+			(u64)g_virt_apic_page_addr[i] + VIRT_APIC_PAGE_SIZE, ALLOC_KMALLOC);
+	}
+}
+
+/*
+ * Allocate memory for zeroVisor.
+ * After loaded and two world are separated. so zeroVisor should be
+ * use own memory pool to prevent interference of the guest.
+ */
+// static int zv_setup_memory_pool(void) {
+//     u64 i;
+//     u64 size;
+
+//     spin_lock_init(&g_mem_pool_lock);
+
+    
+// }
 
 module_init(zeroVisor_init);
 module_exit(zeroVisor_exit);

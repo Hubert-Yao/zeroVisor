@@ -14,7 +14,8 @@ struct zv_ept_info g_ept_info = {0, };
 /* Static functions declarations */
 static void zv_setup_ept_system_ram_range(void);
 static int zv_callback_set_write_back_to_ram(unsigned long start, unsigned long size, void* arg);
-
+static void zv_set_ept_page_flags(u64 phy_addr, u32 flags);
+static void zv_set_ept_page_addr(u64 phy_addr, u64 addr);
 
 static int zv_callback_walk_ram(unsigned long start, unsigned long size, void* arg) {
     zv_log_write(LOG_DEBUG, "MMU", "System RAM start %016lX, end %016lX, "
@@ -342,13 +343,100 @@ static int zv_callback_set_write_back_to_ram(
 }
 
 /* Protect page table memory for EPT */
-// void zv_protect_ept_pages(void) {
-//     int i;
-//     u64 end;
+void zv_protect_ept_pages(void) {
+    int i;
+    u64 end;
 
-//     zv_log_write(LOG_DEBUG, "MMU", "Protect EPT");
+    zv_log_write(LOG_DEBUG, "MMU", "Protect EPT");
 
-//     /* Hide the EPT page table */
-//     // TODO
-// }
+    /* Hide the EPT page table */
+    end = (u64)g_ept_info.pml4_page_addr_array + 
+        g_ept_info.pml4_page_count * sizeof(u64*);
+	zv_hide_range((u64)g_ept_info.pml4_page_addr_array, end, ALLOC_VMALLOC);
+
+	end = (u64)g_ept_info.pdpte_pd_page_addr_array +
+		g_ept_info.pdpte_pd_page_count * sizeof(u64*);
+	zv_hide_range((u64)g_ept_info.pdpte_pd_page_addr_array, end, ALLOC_VMALLOC);
+
+	end = (u64)g_ept_info.pdept_page_addr_array +
+		g_ept_info.pdept_page_count * sizeof(u64*);
+	zv_hide_range((u64)g_ept_info.pdept_page_addr_array, end, ALLOC_VMALLOC);
+
+	end = (u64)g_ept_info.pte_page_addr_array +
+		g_ept_info.pte_page_count * sizeof(u64*);
+	zv_hide_range((u64)g_ept_info.pte_page_addr_array, end, ALLOC_VMALLOC);
+
+    for (i = 0 ; i < g_ept_info.pml4_page_count; i ++)
+	{
+		end = (u64)g_ept_info.pml4_page_addr_array[i] + EPT_PAGE_SIZE;
+		zv_hide_range((u64)g_ept_info.pml4_page_addr_array[i], end,
+			ALLOC_KMALLOC);
+	}
+
+	for (i = 0 ; i < g_ept_info.pdpte_pd_page_count; i ++)
+	{
+		end = (u64)g_ept_info.pdpte_pd_page_addr_array[i] + EPT_PAGE_SIZE;
+		zv_hide_range((u64)g_ept_info.pdpte_pd_page_addr_array[i], end,
+			ALLOC_KMALLOC);
+	}
+
+	for (i = 0 ; i < g_ept_info.pdept_page_count; i ++)
+	{
+		end = (u64)g_ept_info.pdept_page_addr_array[i] + EPT_PAGE_SIZE;
+		zv_hide_range((u64)g_ept_info.pdept_page_addr_array[i], end,
+			ALLOC_KMALLOC);
+	}
+
+	for (i = 0 ; i < g_ept_info.pte_page_count; i ++)
+	{
+		end = (u64)g_ept_info.pte_page_addr_array[i] + EPT_PAGE_SIZE;
+		zv_hide_range((u64)g_ept_info.pte_page_addr_array[i], end,
+			ALLOC_KMALLOC);
+	}
+
+    zv_log_write(LOG_DEBUG, "MMU", "    [*] Complete");
+}
+
+/*
+ * Hide a physical page to protect it from the guest.
+ *
+ * When zeroVisor sets no permission to the page, error is occured in some system. 
+ * So, for hiding a physical page, zeroVisor sets read-only permission to the page
+ * and maps guest physical page to page number 0.
+ */
+void zv_set_ept_hide_page(u64 phy_addr) {
+    zv_set_ept_page_flags(phy_addr, EPT_READ | EPT_BIT_MEM_TYPE_WB);
+    zv_set_ept_page_addr(phy_addr, 0); // guest access -> #PF
+}
+
+/* Set permissions to a physical page in EPT */
+static void zv_set_ept_page_flags(u64 phy_addr, u32 flags) {
+    u64 page_offset;
+    u64* page_table_addr;
+    u64 page_index;
+
+    page_offset = phy_addr / EPT_PAGE_SIZE;
+    page_index = page_offset % EPT_PAGE_ENT_COUNT;
+    page_table_addr = zv_get_pagetable_log_addr(EPT_TYPE_PTE,
+        page_offset / EPT_PAGE_ENT_COUNT);
+    page_table_addr[page_index] =
+        (page_table_addr[page_index] & MASK_PAGEADDR) | flags;
+}
+
+/* Change physical address in EPT */
+static void zv_set_ept_page_addr(u64 phy_addr, u64 addr) {
+    u64 page_offset;
+    u64* page_table_addr;
+    u64 page_index;
+
+    page_offset = phy_addr / EPT_PAGE_SIZE;
+    page_index = page_offset % EPT_PAGE_ENT_COUNT;
+    page_table_addr = zv_get_pagetable_log_addr(EPT_TYPE_PTE,
+        page_offset / EPT_PAGE_ENT_COUNT);
+    page_table_addr[page_index] = (addr & MASK_PAGEADDR)
+        | (page_table_addr[page_index] & ~MASK_PAGEADDR); // extra flags 
+}
+
+
+
 

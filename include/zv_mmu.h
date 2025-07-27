@@ -11,6 +11,16 @@
 #define VAL_2MB					((u64)2 * 1024 * 1024)
 #define VAL_4KB					((u64)4 * 1024)
 
+/* Page table flags. */
+#define MASK_PAGEFLAG			((u64) 0xFF00000000000FFF)
+#define MASK_PAGEFLAG_WO_DA		(((u64) 0xFF00000000000FFF) ^ (0x01 << 5) ^ (0x01 << 6))
+#define MASK_INVALIDPAGEFLAG	((u64) 0x07FF000000000000)
+#define MASK_PAGE_SIZE_FLAG		(0x01 << 7)
+#define MASK_PAGEFLAG_WO_SIZE	(MASK_PAGEFLAG ^ MASK_PAGE_SIZE_FLAG)
+#define MASK_PRESENT_FLAG		(0x01 << 0)
+#define MASK_XD_FLAG			((u64)0x01 << 63)
+#define MASK_PAGEADDR			((u64) 0xFFFFFFFFFFFFF000)
+
 /* EPT page type. */
 #define EPT_TYPE_PML4			0
 #define EPT_TYPE_PDPTEPD		1
@@ -77,3 +87,5 @@ int zv_alloc_ept_pages(void);
 void zv_setup_ept_pagetables(void);
 void* zv_get_pagetable_log_addr(int type, int index);
 void* zv_get_pagetable_phy_addr(int type, int index);
+void zv_set_ept_hide_page(u64 phy_addr);
+void zv_protect_ept_pages(void);
